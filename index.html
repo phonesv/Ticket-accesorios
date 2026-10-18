@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ticket de venta – Phone SV (accesorios)</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;padding:12px 0 100px;background:#dcdcdc;font-family:-apple-system,Helvetica,Arial,sans-serif}
+  /* La vista previa se reduce al ancho del teléfono; el ticket real sigue midiendo 576 px */
+  #wrap{margin:0 auto;overflow:hidden}
+  #ticket{width:576px;transform-origin:top left;background:#fff;color:#000;padding:22px 20px 30px;
+          font-family:"Courier New",Courier,monospace;font-size:23px;line-height:1.28}
+  .bar{position:fixed;left:0;right:0;bottom:0;display:flex;justify-content:center;
+       padding:14px 12px calc(14px + env(safe-area-inset-bottom));
+       background:linear-gradient(to top,#dcdcdc 65%,rgba(220,220,220,0))}
+  .bar button{font-size:17px;padding:12px 30px;border:1px solid #bdbdc2;border-radius:999px;
+              background:#f4f4f6;color:#222;font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.18)}
+  .bar button:active{background:#e4e4e8}
+  .c{text-align:center}.b{font-weight:700}
+  .neg{font-size:38px;font-weight:700;letter-spacing:1px}
+  .sep{border-top:2px dashed #000;margin:12px 0}
+  .row{display:flex;justify-content:space-between;gap:10px}
+  .row span:first-child{flex:0 0 auto}
+  .row span:last-child{text-align:right;word-break:break-word}
+  .item{margin-bottom:8px}
+  /* el nombre se limita al ~80% del ancho: la columna derecha queda libre para los importes */
+  .item .n{font-weight:700;max-width:80%;overflow-wrap:anywhere}
+  .big{font-size:34px;font-weight:700}
+  .small{font-size:19px}
+  .tag{display:inline-block;border:2px solid #000;padding:0 10px;font-weight:700;margin-bottom:6px}
+  @media print{
+    @page{size:80mm auto;margin:0}
+    body{background:#fff;padding:0}.bar{display:none}
+    #wrap{width:auto!important;height:auto!important;overflow:visible}
+    #ticket{transform:none!important;width:72mm;padding:3mm;font-size:3.1mm}
+    .neg{font-size:5mm}.big{font-size:4.4mm}.small{font-size:2.5mm}
+  }
+</style>
+</head>
+<body>
+<div id="wrap"><div id="ticket"></div></div>
+<div class="bar"><button id="btnPng">🖨️ Imprimir</button></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script>
+/* ============ CONFIGURACIÓN ============ */
+const NEGOCIO = {
+  nombre:   'PHONE SV',
+  direccion:'Plaza Comercial Pasares, San Juan Opico, La Libertad',
+  tel:      'WhatsApp: 6064-3493'
+};
+const MONEDA = '$';
+const PIE = 'Gracias por tu compra';
+/* ======================================= */
+
+/* Parámetros de URL = columnas de AppSheet:
+   IDPedido, Telefono, Nombre_Cliente, Nombre_Vendedor, Fecha_Venta, Total_Items, Costo_Envio, Total, Tipo_Pago
+   Ítems (tabla Ventas), una lista por columna separada por " , ":
+   LVL1, LVL2, LVL3, Cantidad_Vendida, Precio_Venta, Total_Fila
+   (alterno: Items = LVL1~LVL2~LVL3~Cant~Precio~TotalFila separados por |) */
+const q = new URLSearchParams(location.search);
+const hayDatos = [...q.keys()].length > 0;
+const get = k => (q.get(k) || '').trim();
+
+const DEMO = {
+  IDPedido:'0001', Telefono:'7000-0000', Nombre_Cliente:'Cliente de prueba', Nombre_Vendedor:'Jairo', Fecha_Venta:'17/10/2026',
+  LVL1:'Case , Vidrio Templado', LVL2:'iPhone 17 Pro Max , iPhone 17 Pro Max',
+  LVL3:'Green TechWoven MagSafe with Apple Animation OEM , Film Privacy',
+  Cantidad_Vendida:'1 , 2', Precio_Venta:'25 , 5', Total_Fila:'25 , 10',
+  Total_Items:'35', Costo_Envio:'3.50', Total:'38.50', Tipo_Pago:'Efectivo'
+};
+const D = hayDatos ? Object.fromEntries([...q.keys()].map(k => [k, get(k)])) : DEMO;
+
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const num = s => {
+  let t = String(s ?? '').replace(/[^0-9.,-]/g, '');
+  t = t.includes('.') ? t.replace(/,/g, '') : t.replace(',', '.');   // "1,200.50" y "12,5"
+  const n = parseFloat(t); return isNaN(n) ? 0 : n;
+};
+const money = n => MONEDA + n.toFixed(2);
+const line = (a, b) => b ? `<div class="row"><span>${esc(a)}</span><span>${esc(b)}</span></div>` : '';
+
+/* Fecha de venta: AppSheet la manda como mes/día/año (o aaaa-mm-dd); se muestra día/mes/año */
+function fechaVenta(v){
+  const t = String(v || '').trim(); if (!t) return '';
+  const p2 = n => String(n).padStart(2, '0');
+  let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return `${p2(m[3])}/${p2(m[2])}/${m[1]}`;
+  m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (!m) return t;
+  let a = +m[1], b = +m[2];
+  if (a > 12) return `${p2(a)}/${p2(b)}/${m[3]}`;      // ya viene día/mes/año
+  return `${p2(b)}/${p2(a)}/${m[3]}`;                  // mes/día/año -> día/mes/año
+}
+
+/* Fecha y hora de emisión del ticket, 24 h */
+function fechaTxt(){
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  return `${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function render(){
+  let items;
+  if (D.Items) {
+    /* Formato alterno: Items = LVL1~LVL2~LVL3~Cant~Precio~TotalFila | ... */
+    items = D.Items.split('|').filter(t => t.trim()).map(t => {
+      const f = t.split('~').map(x => x.trim());
+      const nombre = f.slice(0, 3).filter(x => x && x !== '-').join(' ');
+      const cant = num(f[3]) || 1, pu = num(f[4]);
+      const tot = f[5] !== undefined && f[5] !== '' ? num(f[5]) : cant * pu;
+      return {nombre, cant, pu, tot};
+    });
+  } else {
+    /* Listas paralelas de [Related Ventas][col], separadas por " , ", unidas por posición */
+    const L = k => (D[k] || '').split(' , ').map(x => x.trim());
+    const l1 = L('LVL1'), l2 = L('LVL2'), l3 = L('LVL3');
+    const cs = L('Cantidad_Vendida'), ps = L('Precio_Venta'), ts = L('Total_Fila');
+    const n = Math.max(cs.length, ps.length, ts.length);
+    items = [];
+    for (let i = 0; i < n; i++) {
+      if (!(cs[i] || ps[i] || ts[i])) continue;
+      const nombre = [l1[i], l2[i], l3[i]].filter(x => x && x !== '-').join(' ');
+      const cant = num(cs[i]) || 1, pu = num(ps[i]);
+      const tot = ts[i] ? num(ts[i]) : cant * pu;
+      items.push({nombre, cant, pu, tot});
+    }
+  }
+  const subtotal = D.Total_Items !== undefined && D.Total_Items !== '' ? num(D.Total_Items) : items.reduce((a, i) => a + i.tot, 0);
+  const envio = num(D.Costo_Envio);
+  const total = D.Total !== undefined && D.Total !== '' ? num(D.Total) : subtotal + envio;
+
+  let h = '';
+  h += `<div class="c"><div class="neg">${esc(NEGOCIO.nombre)}</div>`;
+  h += `<div class="small">${esc(NEGOCIO.direccion)}</div><div class="small">${esc(NEGOCIO.tel)}</div></div>`;
+  h += `<div class="sep"></div>`;
+
+  h += `<div class="c"><span class="tag">TICKET DE VENTA</span><div class="b">ACCESORIOS</div></div>`;
+  h += `<div class="sep"></div>`;
+  h += line('Ticket:', D.IDPedido);
+  h += line('Fecha de venta:', fechaVenta(D.Fecha_Venta));
+  h += line('Cliente:', D.Nombre_Cliente);
+  h += line('Tel:', D.Telefono);
+  h += line('Asistente:', D.Nombre_Vendedor);
+
+  h += `<div class="sep"></div><div class="row b"><span>DESCRIPCIÓN</span><span>IMPORTE</span></div><div class="sep" style="margin:6px 0"></div>`;
+  items.forEach(i => {
+    h += `<div class="item"><div class="n">${esc(i.nombre)}</div>`;
+    h += `<div class="row"><span>${i.cant} x ${money(i.pu)}</span><span>${money(i.tot)}</span></div></div>`;
+  });
+
+  h += `<div class="sep"></div>`;
+  h += line('Subtotal:', money(subtotal));
+  h += line('Envío:', money(envio));
+  h += `<div class="row big"><span>TOTAL:</span><span>${money(total)}</span></div>`;
+
+  h += `<div class="sep"></div>`;
+  h += line('Pago:', D.Tipo_Pago);
+
+  h += `<div class="sep"></div><div class="c b">${esc(PIE)}</div>`;
+  h += `<div class="c small" style="margin-top:6px">Emitido: ${fechaTxt()}</div>`;
+  document.getElementById('ticket').innerHTML = h;
+}
+render();
+
+/* Ajuste de la vista previa al ancho de la pantalla */
+function fit(){
+  const t = document.getElementById('ticket'), w = document.getElementById('wrap');
+  const k = Math.min(1, (window.innerWidth - 24) / 576);
+  t.style.transform = `scale(${k})`;
+  w.style.width  = (576 * k) + 'px';
+  w.style.height = (t.offsetHeight * k) + 'px';
+}
+fit();
+window.addEventListener('resize', fit);
+window.addEventListener('load', fit);
+
+/* Imprimir: genera el PNG a tamaño real (576 px) y lo comparte a la app de la impresora (solo el archivo, sin title) */
+document.getElementById('btnPng').addEventListener('click', async () => {
+  const holder = document.createElement('div');
+  holder.style.cssText = 'position:absolute;left:-10000px;top:0;width:576px';
+  const clone = document.getElementById('ticket').cloneNode(true);
+  clone.style.transform = 'none';
+  holder.appendChild(clone);
+  document.body.appendChild(holder);
+  try {
+    const canvas = await html2canvas(clone, {scale: 2, backgroundColor: '#ffffff', windowWidth: 576, scrollX: 0, scrollY: 0});
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+    const file = new File([blob], `ticket-accesorios-${D.IDPedido || 'venta'}.png`, {type: 'image/png'});
+    if (navigator.canShare && navigator.canShare({files: [file]})) {
+      try { await navigator.share({files: [file]}); } catch (e) {}
+    } else {
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; a.click();
+    }
+  } finally { holder.remove(); }
+});
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>
